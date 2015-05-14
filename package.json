@@ -1,0 +1,28 @@
+{
+  "name": "json-beautify",
+  "version": "1.0.0",
+  "description": "JSON.stringify with fixed maximum character width.",
+  "main": "index.js",
+  "scripts": {
+    "test": "npm test"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gre/json-beautify"
+  },
+  "keywords": [
+    "json",
+    "stringify",
+    "pretty",
+    "prettify",
+    "prettifier",
+    "beautify",
+    "beautifier"
+  ],
+  "author": "Gaëtan Renaudeau",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/gre/json-beautify/issues"
+  },
+  "homepage": "https://github.com/gre/json-beautify"
+}
