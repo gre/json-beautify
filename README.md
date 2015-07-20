@@ -21,7 +21,7 @@ var obj = { str: "Hello World", num: 42, smallarray: [ 1, 2, 3, "foo", {} ], sma
 ### With 100 fixed-spaces:
 
 ```js
-console.log(beautify(obj, null, 2, 100);
+console.log(beautify(obj, null, 2, 100));
 ```
 
 ```json
@@ -38,7 +38,7 @@ console.log(beautify(obj, null, 2, 100);
 ### With 80 fixed-spaces:
 
 ```js
-console.log(beautify(obj, null, 2, 80);
+console.log(beautify(obj, null, 2, 80));
 ```
 
 ```json
