@@ -188,28 +188,28 @@ function beautify (value, replacer, space, limit) {
 // A default replacer method can be provided. Use of the space parameter can
 // produce text that is more easily readable.
 
-  var i;
-  gap = '';
-  indent = '';
+    var i;
+    gap = '';
+    indent = '';
 
-  if (!limit) limit = 0;
+    if (!limit) limit = 0;
 
-  if (typeof limit !== "number")
-    throw new Error("beaufifier: limit must be a number");
+    if (typeof limit !== "number")
+        throw new Error("beaufifier: limit must be a number");
 
 // If the space parameter is a number, make an indent string containing that
 // many spaces.
 
-  if (typeof space === 'number') {
-      for (i = 0; i < space; i += 1) {
-          indent += ' ';
-      }
+    if (typeof space === 'number') {
+        for (i = 0; i < space; i += 1) {
+            indent += ' ';
+        }
 
 // If the space parameter is a string, it will be used as the indent string.
 
-  } else if (typeof space === 'string') {
-      indent = space;
-  }
+    } else if (typeof space === 'string') {
+        indent = space;
+    }
 
 // If there is a replacer, it must be a function or an array.
 // Otherwise, throw an error.
@@ -224,7 +224,7 @@ function beautify (value, replacer, space, limit) {
 // Make a fake root object containing our value under the key of ''.
 // Return the result of stringifying the value.
 
-  return str('', {'': value}, limit);
+    return str('', {'': value}, limit);
 }
 
 module.exports = beautify;
