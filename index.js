@@ -180,7 +180,7 @@ function str(key, holder, limit) {
 }
 
 
-function beautify (value, replacer, space, limit) {
+function beautify (value, replacer, space, maxwidth) {
 
 // The stringify method takes a value and an optional replacer, and an optional
 // space parameter, and returns a JSON text. The replacer can be a function
@@ -192,9 +192,9 @@ function beautify (value, replacer, space, limit) {
     gap = '';
     indent = '';
 
-    if (!limit) limit = 0;
+    if (!maxwidth) maxwidth = 0;
 
-    if (typeof limit !== "number")
+    if (typeof maxwidth !== "number")
         throw new Error("beaufifier: limit must be a number");
 
 // If the space parameter is a number, make an indent string containing that
@@ -224,7 +224,7 @@ function beautify (value, replacer, space, limit) {
 // Make a fake root object containing our value under the key of ''.
 // Return the result of stringifying the value.
 
-    return str('', {'': value}, limit);
+    return str('', {'': value}, maxwidth);
 }
 
 module.exports = beautify;
