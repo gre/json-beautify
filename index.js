@@ -12,6 +12,7 @@ var gap,
       '"': '\\"',
       '\\': '\\\\'
     },
+    options,
     rep;
 
 function quote(string) {
@@ -188,14 +189,34 @@ function beautify (value, replacer, space, maxwidth) {
 // A default replacer method can be provided. Use of the space parameter can
 // produce text that is more easily readable.
 
+// Alternatively, the method can take a value and a config object with the
+// replacer, space and maxwidth parameters as keys.
+
     var i;
     gap = '';
     indent = '';
+    options = {};
+
+// If second and no further parameters are supplied, and it isn't a replacer,
+// it is an options object
+    if (replacer && !isReplacer(replacer) && !space && !maxwidth) {
+        options = replacer;
+        replacer = options.replacer;
+        space = options.hasOwnProperty('space') ? options.space : '  ';
+        maxwidth = options.maxwidth || 80;
+    }
+
+// If there is a replacer, it must be a function or an array.
+// Otherwise, throw an error.
+    if (!isReplacer(replacer)) {
+        throw new Error('beautifier: wrong replacer parameter');
+    }
+    rep = replacer;
 
     if (!maxwidth) maxwidth = 0;
 
     if (typeof maxwidth !== "number")
-        throw new Error("beaufifier: limit must be a number");
+        throw new Error("beaufifier: maxwidth must be a number");
 
 // If the space parameter is a number, make an indent string containing that
 // many spaces.
@@ -211,20 +232,16 @@ function beautify (value, replacer, space, maxwidth) {
         indent = space;
     }
 
-// If there is a replacer, it must be a function or an array.
-// Otherwise, throw an error.
-
-  rep = replacer;
-  if (replacer && typeof replacer !== 'function' &&
-          (typeof replacer !== 'object' ||
-          typeof replacer.length !== 'number')) {
-      throw new Error('beautifier: wrong replacer parameter');
-  }
-
 // Make a fake root object containing our value under the key of ''.
 // Return the result of stringifying the value.
 
     return str('', {'': value}, maxwidth);
+}
+
+function isReplacer(replacer) {
+    return !(replacer && typeof replacer !== 'function' &&
+    (typeof replacer !== 'object' ||
+    typeof replacer.length !== 'number'))
 }
 
 module.exports = beautify;

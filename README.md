@@ -9,6 +9,10 @@ It has the exact same signature of `JSON.stringify` but it also adds an optional
 
 The maximum fixed character width (for instance 80).
 
+Alternatively, the second parameter can be an object with the `replacer` and `space` keys corresponding to the
+standard `JSON.stringify` parameters and a `maxwidth` key for the maximum fixed character width. When the
+second parameter is an object, space defaults to 2 space and maxwidth defaults to 80 characters.
+
 ## Examples:
 
 ```js
@@ -19,6 +23,12 @@ var obj = { str: "Hello World", num: 42, smallarray: [ 1, 2, 3, "foo", {} ], sma
 
 
 ### With 100 fixed-spaces:
+
+```js
+console.log(beautify(obj, { maxwidth: 100}));
+```
+
+or:
 
 ```js
 console.log(beautify(obj, null, 2, 100));
@@ -36,6 +46,12 @@ console.log(beautify(obj, null, 2, 100));
 ```
 
 ### With 80 fixed-spaces:
+
+```js
+console.log(beautify(obj, {}));
+```
+
+or:
 
 ```js
 console.log(beautify(obj, null, 2, 80));
