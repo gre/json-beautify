@@ -163,6 +163,12 @@ function str(key, holder, limit) {
             }
         }
 
+// Sort keys if applicable
+
+        if (options.sortkeys) {
+            partial.sort();
+        }
+
 // Join all of the member texts together, separated with commas,
 // and wrap them in braces.
 

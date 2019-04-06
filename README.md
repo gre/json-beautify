@@ -11,7 +11,11 @@ The maximum fixed character width (for instance 80).
 
 Alternatively, the second parameter can be an object with the `replacer` and `space` keys corresponding to the
 standard `JSON.stringify` parameters and a `maxwidth` key for the maximum fixed character width. When the
-second parameter is an object, space defaults to 2 space and maxwidth defaults to 80 characters.
+second parameter is an object, space defaults to 2 space and maxwidth defaults to 80 characters. There are
+also some additional keys for even finer control:
+
+* `sortkeys` (boolean) If true, json objects will be sorted by key, rather than printed in the order they are
+  stored. Defaults to false.
 
 ## Examples:
 
@@ -76,5 +80,33 @@ console.log(beautify(obj, null, 2, 80));
     "a": { "b": { "c": 42 } },
     "foobar": "FooBar"
   }
+}
+```
+
+### Sorting keys
+
+```js
+console.log(beautify(obj, { sortkeys: true }));
+```
+
+```json
+{
+  "bigarray": [
+    1,
+    2,
+    3,
+    "foo",
+    { "arr": [ 1, 2, 3, "foo", {} ], "bar": 42, "foo": "bar" }
+  ],
+  "bigobject": {
+    "a": { "b": { "c": 42 } },
+    "bar": 42,
+    "foo": [ 1, 2, 3, "foo", {} ],
+    "foobar": "FooBar"
+  },
+  "num": 42,
+  "smallarray": [ 1, 2, 3, "foo", {} ],
+  "smallobject": { "bar": 42, "foo": "bar" },
+  "str": "Hello World"
 }
 ```
