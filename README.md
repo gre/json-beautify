@@ -16,6 +16,11 @@ also some additional keys for even finer control:
 
 * `sortkeys` (boolean) If true, json objects will be sorted by key, rather than printed in the order they are
   stored. Defaults to false.
+* `spacearrays` (string) Space to leave around single line arrays, defaults to a single space (`' '`), which
+  produces output like `[ 1, 2, 3 ]`. Set to an empty string and it will output `[1, 2, 3]`.
+* `spaceobjects` (string) As above but for objects, not arrays, defaults to a single space (`' '`), which
+  produces output like `{ "foo": "bar", "bar": 42 }`. Set to an empty string and it will output
+  `{"foo": "bar", "bar": 42}`.
 
 ## Examples:
 

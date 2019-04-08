@@ -121,7 +121,7 @@ function str(key, holder, limit) {
                     ? (
                       gap.length + partial.join(', ').length + 4 > limit ?
                       '[\n' + gap + partial.join(',\n' + gap) + '\n' + mind + ']' :
-                      '[ ' + partial.join(', ') + ' ]'
+                      '[' + options.spacearrays + partial.join(', ') + options.spacearrays + ']'
                     )
                     : '[' + partial.join(',') + ']';
             gap = mind;
@@ -178,7 +178,7 @@ function str(key, holder, limit) {
                 ? (
                   gap.length + partial.join(', ').length + 4 > limit ?
                   '{\n' + gap + partial.join(',\n' + gap) + '\n' + mind + '}' :
-                  '{ ' + partial.join(', ') + ' }'
+                  '{' + options.spaceobjects + partial.join(', ') + options.spaceobjects + '}'
                 )
                 : '{' + partial.join(',') + '}';
         gap = mind;
@@ -220,6 +220,10 @@ function beautify (value, replacer, space, maxwidth) {
     rep = replacer;
 
     if (!maxwidth) maxwidth = 0;
+
+    if (!options.hasOwnProperty('spacearrays')) options.spacearrays = ' ';
+
+    if (!options.hasOwnProperty('spaceobjects')) options.spaceobjects = ' ';
 
     if (typeof maxwidth !== "number")
         throw new Error("beaufifier: maxwidth must be a number");
