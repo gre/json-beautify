@@ -43,6 +43,7 @@ for (line of readmeArray) {
         for (i of currentCode) {
           console.log('Testing: ' + i);
           assert.strictEqual(currentOutput, eval(i) + '\n');
+          assert.deepEqual(obj, JSON.parse(currentOutput));
         }
 
         currentOutput = "";
