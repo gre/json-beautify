@@ -1,5 +1,9 @@
 #!/usr/bin/env node
 
+/**
+ * Highly hacky test script that parses json and js code examples in README to look for test cases
+ */
+
 var beautify = require(".");
 var fs = require('fs');
 var assert = require('assert');
