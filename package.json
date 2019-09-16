@@ -1,6 +1,6 @@
 {
   "name": "json-beautify",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "description": "JSON.stringify with fixed maximum character width.",
   "main": "index.js",
   "scripts": {
