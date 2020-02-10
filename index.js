@@ -12,6 +12,7 @@ var gap,
       '"': '\\"',
       '\\': '\\\\'
     },
+    options,
     rep;
 
 function quote(string) {
@@ -120,7 +121,7 @@ function str(key, holder, limit) {
                     ? (
                       gap.length + partial.join(', ').length + 4 > limit ?
                       '[\n' + gap + partial.join(',\n' + gap) + '\n' + mind + ']' :
-                      '[ ' + partial.join(', ') + ' ]'
+                      '[' + options.spacearrays + partial.join(', ') + options.spacearrays + ']'
                     )
                     : '[' + partial.join(',') + ']';
             gap = mind;
@@ -162,6 +163,12 @@ function str(key, holder, limit) {
             }
         }
 
+// Sort keys if applicable
+
+        if (options.sortkeys) {
+            partial.sort();
+        }
+
 // Join all of the member texts together, separated with commas,
 // and wrap them in braces.
 
@@ -171,7 +178,7 @@ function str(key, holder, limit) {
                 ? (
                   gap.length + partial.join(', ').length + 4 > limit ?
                   '{\n' + gap + partial.join(',\n' + gap) + '\n' + mind + '}' :
-                  '{ ' + partial.join(', ') + ' }'
+                  '{' + options.spaceobjects + partial.join(', ') + options.spaceobjects + '}'
                 )
                 : '{' + partial.join(',') + '}';
         gap = mind;
@@ -180,7 +187,7 @@ function str(key, holder, limit) {
 }
 
 
-function beautify (value, replacer, space, limit) {
+function beautify (value, replacer, space, maxwidth) {
 
 // The stringify method takes a value and an optional replacer, and an optional
 // space parameter, and returns a JSON text. The replacer can be a function
@@ -188,43 +195,63 @@ function beautify (value, replacer, space, limit) {
 // A default replacer method can be provided. Use of the space parameter can
 // produce text that is more easily readable.
 
-  var i;
-  gap = '';
-  indent = '';
+// Alternatively, the method can take a value and a config object with the
+// replacer, space and maxwidth parameters as keys.
 
-  if (!limit) limit = 0;
+    var i;
+    gap = '';
+    indent = '';
+    options = {};
 
-  if (typeof limit !== "number")
-    throw new Error("beaufifier: limit must be a number");
+// If second and no further parameters are supplied, and it isn't a replacer,
+// it is an options object
+    if (replacer && !isReplacer(replacer) && !space && !maxwidth) {
+        options = replacer;
+        replacer = options.replacer;
+        space = options.hasOwnProperty('space') ? options.space : '  ';
+        maxwidth = options.maxwidth || 80;
+    }
+
+// If there is a replacer, it must be a function or an array.
+// Otherwise, throw an error.
+    if (!isReplacer(replacer)) {
+        throw new Error('beautifier: wrong replacer parameter');
+    }
+    rep = replacer;
+
+    if (!maxwidth) maxwidth = 0;
+
+    if (!options.hasOwnProperty('spacearrays')) options.spacearrays = ' ';
+
+    if (!options.hasOwnProperty('spaceobjects')) options.spaceobjects = ' ';
+
+    if (typeof maxwidth !== "number")
+        throw new Error("beaufifier: maxwidth must be a number");
 
 // If the space parameter is a number, make an indent string containing that
 // many spaces.
 
-  if (typeof space === 'number') {
-      for (i = 0; i < space; i += 1) {
-          indent += ' ';
-      }
+    if (typeof space === 'number') {
+        for (i = 0; i < space; i += 1) {
+            indent += ' ';
+        }
 
 // If the space parameter is a string, it will be used as the indent string.
 
-  } else if (typeof space === 'string') {
-      indent = space;
-  }
-
-// If there is a replacer, it must be a function or an array.
-// Otherwise, throw an error.
-
-  rep = replacer;
-  if (replacer && typeof replacer !== 'function' &&
-          (typeof replacer !== 'object' ||
-          typeof replacer.length !== 'number')) {
-      throw new Error('beautifier: wrong replacer parameter');
-  }
+    } else if (typeof space === 'string') {
+        indent = space;
+    }
 
 // Make a fake root object containing our value under the key of ''.
 // Return the result of stringifying the value.
 
-  return str('', {'': value}, limit);
+    return str('', {'': value}, maxwidth);
+}
+
+function isReplacer(replacer) {
+    return !(replacer && typeof replacer !== 'function' &&
+    (typeof replacer !== 'object' ||
+    typeof replacer.length !== 'number'))
 }
 
 module.exports = beautify;
