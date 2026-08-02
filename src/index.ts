@@ -1,11 +1,14 @@
 /**
  * json-beautify — JSON serialization with a fixed maximum line width.
  *
- * Implements ECMA-262 §25.5.4 (`JSON.stringify`): for the same value,
- * replacer and space, the output is character-identical to `JSON.stringify`.
- * The one deliberate divergence is the extra `limit` parameter, which keeps an
- * object or array on a single line until its inline form would exceed that
- * many characters.
+ * Implements ECMA-262 §25.5.4 (`JSON.stringify`): for every value, replacer
+ * and space it accepts, the output is character-identical to `JSON.stringify`.
+ *
+ * Two deliberate divergences, both in the API rather than the serialization:
+ * the extra `limit` parameter, which keeps an object or array on a single line
+ * until its inline form would exceed that many characters; and stricter
+ * argument validation — a `replacer` that is neither a function nor an array
+ * throws here, where `JSON.stringify` would silently ignore it.
  *
  * The helpers below are named after the spec's abstract operations so that
  * future spec changes map onto the code directly. One structural difference:
@@ -292,6 +295,13 @@ function serializeJSONProperty(
  * the maximum line width (e.g. 80) before a nested object or array is broken
  * onto multiple lines. Without a `limit`, output matches `JSON.stringify`
  * character for character.
+ *
+ * Stricter than `JSON.stringify` in one respect: a `replacer` that is neither
+ * a function nor an array, or a non-numeric `limit`, throws rather than being
+ * silently ignored. Serialization of everything it accepts is unaffected.
+ *
+ * @throws {Error} on a malformed `replacer` or `limit`.
+ * @throws {TypeError} on a BigInt value or a circular structure, per §25.5.4.
  */
 export default function beautify(
   value: unknown,

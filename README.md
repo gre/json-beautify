@@ -3,9 +3,11 @@ json-beautify
 
 JSON.stringify with fixed maximum character width.
 
-**json-beautify** is a TypeScript implementation of [ECMA-262 §25.5.4](https://tc39.es/ecma262/#sec-json.stringify), the specification of `JSON.stringify`. Given the same arguments it produces character-identical output — boxed primitives, `toJSON`, replacer arrays, `space` clamping, lone-surrogate escaping, `TypeError` on BigInt and on circular structures, and [`JSON.rawJSON`](https://github.com/tc39/proposal-json-parse-with-source) (Node 22+) all behave as the spec requires.
+**json-beautify** is a TypeScript implementation of [ECMA-262 §25.5.4](https://tc39.es/ecma262/#sec-json.stringify), the specification of `JSON.stringify`. For every value, replacer and space it accepts, it produces character-identical output — boxed primitives, `toJSON`, replacer arrays, `space` clamping, lone-surrogate escaping, `TypeError` on BigInt and on circular structures, and [`JSON.rawJSON`](https://github.com/tc39/proposal-json-parse-with-source) (Node 22+) all behave as the spec requires.
 
 It adds one thing `JSON.stringify` has no equivalent for: an optional 4th parameter, the maximum line width (for instance 80). Objects and arrays stay on a single line until their inline form would exceed it.
+
+It is also stricter in one respect: a `replacer` that is neither a function nor an array, or a non-numeric `limit`, throws instead of being silently ignored — the kind of typo `JSON.stringify` swallows. This affects argument validation only, never how an accepted value is serialized.
 
 ## Install
 
