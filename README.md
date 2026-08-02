@@ -1,7 +1,5 @@
-json-beautify
-=============
-
-JSON.stringify for humans
+json-beautify: JSON.stringify for humans
+========================================
 
 **json-beautify** is a TypeScript implementation of [ECMA-262 §25.5.4](https://tc39.es/ecma262/#sec-json.stringify), the specification of `JSON.stringify`, with one addition: objects and arrays stay on a single line for as long as they fit within a width you choose, and only break when they have to.
 
