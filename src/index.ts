@@ -1,10 +1,21 @@
 /**
- * json-beautify — JSON.stringify with a fixed maximum character width.
+ * json-beautify — JSON serialization with a fixed maximum line width.
  *
- * Ported from the json2.js stringify algorithm, with each recursive call
- * carrying its own indentation/context state instead of module-level
- * mutable globals (so nested calls, e.g. via a `toJSON` that itself calls
- * `beautify`, can't clobber each other).
+ * Implements ECMA-262 §25.5.4 (`JSON.stringify`): for every value, replacer
+ * and space it accepts, the output is character-identical to `JSON.stringify`.
+ *
+ * Two deliberate divergences, both in the API rather than the serialization:
+ * the extra `limit` parameter, which keeps an object or array on a single line
+ * until its inline form would exceed that many characters; and stricter
+ * argument validation — a `replacer` that is neither a function nor an array
+ * throws here, where `JSON.stringify` would silently ignore it.
+ *
+ * The helpers below are named after the spec's abstract operations so that
+ * future spec changes map onto the code directly. One structural difference:
+ * the spec threads the current indentation through the mutable `[[Indent]]`
+ * field of its state record, whereas here it is an ordinary parameter, so that
+ * nested calls — e.g. a `toJSON` that itself calls `beautify` — cannot clobber
+ * each other's state.
  */
 
 export type Replacer =
@@ -12,33 +23,8 @@ export type Replacer =
   | Array<string | number>
   | null;
 
-// Control/format characters that JSON must escape. Built from numeric code
-// points (rather than literal escape sequences) to keep raw control bytes
-// out of the source file.
-const ESCAPABLE_RANGES: Array<[number, number]> = [
-  [0x0000, 0x001f],
-  [0x007f, 0x009f],
-  [0x00ad, 0x00ad],
-  [0x0600, 0x0604],
-  [0x070f, 0x070f],
-  [0x17b4, 0x17b5],
-  [0x200c, 0x200f],
-  [0x2028, 0x202f],
-  [0x2060, 0x206f],
-  [0xfeff, 0xfeff],
-  [0xfff0, 0xffff],
-];
-
-const ESCAPABLE = new RegExp(
-  '[\\\\"' +
-    ESCAPABLE_RANGES.map(
-      ([from, to]) => String.fromCodePoint(from) + "-" + String.fromCodePoint(to),
-    ).join("") +
-    "]",
-  "g",
-);
-
-const META: Record<string, string> = {
+/** §25.5.4.3 Table 78: JSON Single Character Escape Sequences. */
+const SINGLE_ESCAPES: Record<string, string> = {
   "\b": "\\b",
   "\t": "\\t",
   "\n": "\\n",
@@ -48,120 +34,274 @@ const META: Record<string, string> = {
   "\\": "\\\\",
 };
 
-function quote(value: string): string {
-  ESCAPABLE.lastIndex = 0;
-  if (!ESCAPABLE.test(value)) return '"' + value + '"';
-  return (
-    '"' +
-    value.replace(
-      ESCAPABLE,
-      (ch) => META[ch] ?? "\\u" + ch.charCodeAt(0).toString(16).padStart(4, "0"),
-    ) +
-    '"'
-  );
+// Exactly what §25.5.4.3 step 2 requires: the escapes above, anything below
+// U+0020, and lone surrogates. The `u` flag is what restricts `\p{Surrogate}`
+// to *lone* surrogates — a well-formed pair is a single non-surrogate code
+// point — and escaping those is what keeps the output well-formed Unicode.
+// oxlint-disable-next-line no-control-regex -- matching them is the point
+const ESCAPABLE = /[\u0000-\u001f"\\]|\p{Surrogate}/gu;
+
+/** §25.5.4.4 UnicodeEscape */
+function unicodeEscape(codeUnit: string): string {
+  return "\\u" + codeUnit.charCodeAt(0).toString(16).padStart(4, "0");
 }
 
+/** §25.5.4.3 QuoteJSONString */
+function quoteJSONString(value: string): string {
+  return '"' + value.replace(ESCAPABLE, (ch) => SINGLE_ESCAPES[ch] ?? unicodeEscape(ch)) + '"';
+}
+
+/**
+ * Collapse a Number/String/Boolean/BigInt wrapper to its primitive, covering
+ * the `[[NumberData]]`/`[[StringData]]`/`[[BooleanData]]`/`[[BigIntData]]`
+ * checks in §25.5.4 step 6 and §25.5.4.2 step 4. Returns `value` unchanged
+ * when it is not a wrapper.
+ */
+function unwrapBoxed(value: object): unknown {
+  if (
+    value instanceof Number ||
+    value instanceof String ||
+    value instanceof Boolean ||
+    value instanceof BigInt
+  ) {
+    return value.valueOf();
+  }
+
+  // Wrappers from another realm fail `instanceof`, so fall back to probing the
+  // internal slot. Gating on the brand keeps ordinary objects (`[object
+  // Object]`) away from the throwing path; the `try` then covers objects that
+  // merely spoof the brand via `Symbol.toStringTag`.
+  switch (Object.prototype.toString.call(value)) {
+    case "[object Number]":
+      try {
+        return Number.prototype.valueOf.call(value);
+      } catch {
+        return value;
+      }
+    case "[object String]":
+      try {
+        return String.prototype.valueOf.call(value);
+      } catch {
+        return value;
+      }
+    case "[object Boolean]":
+      try {
+        return Boolean.prototype.valueOf.call(value);
+      } catch {
+        return value;
+      }
+    case "[object BigInt]":
+      try {
+        return BigInt.prototype.valueOf.call(value);
+      } catch {
+        return value;
+      }
+    default:
+      return value;
+  }
+}
+
+/**
+ * §25.5.4.2 step 4.a. `JSON.isRawJSON` is the only way to observe the
+ * `[[IsRawJSON]]` slot, and it exists only from Node 22; older runtimes have
+ * no raw JSON values to detect in the first place.
+ */
+const rawJSONCheck = (JSON as { isRawJSON?: (value: unknown) => boolean }).isRawJSON;
+const isRawJSON: (value: object) => boolean =
+  typeof rawJSONCheck === "function" ? (value) => rawJSONCheck(value) : () => false;
+
+/** §25.5.4 steps 6-9: normalize `space` into the indentation unit ([[Gap]]). */
+function toGap(space: unknown): string {
+  const value = space !== null && typeof space === "object" ? unwrapBoxed(space) : space;
+
+  if (typeof value === "number") {
+    // ToIntegerOrInfinity truncates toward zero, then the result is capped at
+    // 10 — which is also what turns Infinity into a usable count.
+    const count = Math.min(10, Number.isNaN(value) ? 0 : Math.trunc(value));
+    return count < 1 ? "" : " ".repeat(count);
+  }
+
+  if (typeof value === "string") {
+    return value.length <= 10 ? value : value.slice(0, 10);
+  }
+
+  return "";
+}
+
+/**
+ * §25.5.4 step 5.b.ii: turn a replacer array into `[[PropertyList]]`, a
+ * de-duplicated list of keys. Numbers are stringified, and String/Number
+ * wrappers are unwrapped — but not Boolean ones, which the spec skips.
+ */
+function toPropertyList(replacer: readonly unknown[]): string[] {
+  const list: string[] = [];
+
+  for (const entry of replacer) {
+    let key: string | undefined;
+
+    if (typeof entry === "string") {
+      key = entry;
+    } else if (typeof entry === "number") {
+      key = String(entry);
+    } else if (entry !== null && typeof entry === "object") {
+      const unwrapped = unwrapBoxed(entry);
+      if (typeof unwrapped === "string" || typeof unwrapped === "number") {
+        key = String(unwrapped);
+      }
+    }
+
+    if (key !== undefined && !list.includes(key)) list.push(key);
+  }
+
+  return list;
+}
+
+/** §25.5.4.1 JSON Serialization Record, minus [[Indent]] (threaded instead). */
+interface State {
+  replacerFunction: ((this: unknown, key: string, value: unknown) => unknown) | undefined;
+  propertyList: string[] | undefined;
+  gap: string;
+  stack: object[];
+  limit: number;
+}
+
+/**
+ * Join already-serialized members. This is where json-beautify departs from
+ * the spec: rather than always breaking when a gap is set, a run stays inline
+ * as long as it fits within `limit` characters.
+ */
 function wrap(
   partial: string[],
   open: string,
   close: string,
-  mind: string,
-  gap: string,
-  limit: number,
+  stepBack: string,
+  indent: string,
+  state: State,
 ): string {
   if (partial.length === 0) return open + close;
-  if (!gap) return open + partial.join(",") + close;
+  if (!state.gap) return open + partial.join(",") + close;
 
   const inline = partial.join(", ");
-  if (gap.length + inline.length + 4 <= limit) {
+  if (indent.length + inline.length + 4 <= state.limit) {
     return open + " " + inline + " " + close;
   }
-  return open + "\n" + gap + partial.join(",\n" + gap) + "\n" + mind + close;
+  return open + "\n" + indent + partial.join(",\n" + indent) + "\n" + stepBack + close;
 }
 
-interface Context {
-  indent: string;
-  limit: number;
-  replacer: Replacer;
-}
+/** §25.5.4.6 SerializeJSONArray */
+function serializeJSONArray(value: unknown[], indent: string, state: State): string {
+  if (state.stack.includes(value)) {
+    throw new TypeError("Converting circular structure to JSON");
+  }
+  state.stack.push(value);
 
-function str(
-  key: string,
-  holder: Record<string, unknown>,
-  gap: string,
-  ctx: Context,
-): string | undefined {
-  let value = holder[key];
+  const stepBack = indent;
+  const childIndent = indent + state.gap;
+  const partial: string[] = [];
 
-  if (
-    value &&
-    typeof value === "object" &&
-    typeof (value as { toJSON?: unknown }).toJSON === "function"
-  ) {
-    value = (value as { toJSON: (key: string) => unknown }).toJSON(key);
+  for (let i = 0; i < value.length; i += 1) {
+    partial.push(serializeJSONProperty(String(i), value, childIndent, state) ?? "null");
   }
 
-  if (typeof ctx.replacer === "function") {
-    value = ctx.replacer.call(holder, key, value);
+  state.stack.pop();
+  return wrap(partial, "[", "]", stepBack, childIndent, state);
+}
+
+/** §25.5.4.5 SerializeJSONObject */
+function serializeJSONObject(value: object, indent: string, state: State): string {
+  if (state.stack.includes(value)) {
+    throw new TypeError("Converting circular structure to JSON");
+  }
+  state.stack.push(value);
+
+  const stepBack = indent;
+  const childIndent = indent + state.gap;
+  const partial: string[] = [];
+  // Step 6.a: EnumerableOwnProperties(value, key).
+  const keys = state.propertyList ?? Object.keys(value);
+
+  for (const key of keys) {
+    const member = serializeJSONProperty(key, value, childIndent, state);
+    if (member !== undefined) {
+      partial.push(quoteJSONString(key) + (state.gap ? ": " : ":") + member);
+    }
+  }
+
+  state.stack.pop();
+  return wrap(partial, "{", "}", stepBack, childIndent, state);
+}
+
+/** §25.5.4.2 SerializeJSONProperty */
+function serializeJSONProperty(
+  key: string,
+  holder: object,
+  indent: string,
+  state: State,
+): string | undefined {
+  let value: unknown = (holder as Record<string, unknown>)[key];
+
+  // Step 2: objects — callables included — and BigInts get a `toJSON` hook.
+  // BigInt is in that list purely so that a user-installed
+  // `BigInt.prototype.toJSON` can rescue a value step 10 would else reject.
+  if (
+    (value !== null && (typeof value === "object" || typeof value === "function")) ||
+    typeof value === "bigint"
+  ) {
+    const toJSON = (value as { toJSON?: unknown }).toJSON;
+    if (typeof toJSON === "function") {
+      value = (toJSON as (this: unknown, key: string) => unknown).call(value, key);
+    }
+  }
+
+  if (state.replacerFunction !== undefined) {
+    value = state.replacerFunction.call(holder, key, value);
+  }
+
+  // Step 4: raw JSON is spliced in verbatim; wrappers collapse to primitives.
+  if (value !== null && typeof value === "object") {
+    if (isRawJSON(value)) return (value as { rawJSON: string }).rawJSON;
+    value = unwrapBoxed(value);
   }
 
   switch (typeof value) {
     case "string":
-      return quote(value);
+      return quoteJSONString(value);
 
     case "number":
-      return isFinite(value) ? String(value) : "null";
+      return Number.isFinite(value) ? String(value) : "null";
 
     case "boolean":
       return String(value);
 
+    case "bigint":
+      // Step 10.
+      throw new TypeError("Do not know how to serialize a BigInt");
+
     case "object": {
       if (value === null) return "null";
-
-      const mind = gap;
-      const childGap = gap + ctx.indent;
-      const partial: string[] = [];
-
-      if (Array.isArray(value)) {
-        for (let i = 0; i < value.length; i += 1) {
-          partial.push(
-            str(String(i), value as unknown as Record<string, unknown>, childGap, ctx) ?? "null",
-          );
-        }
-        return wrap(partial, "[", "]", mind, childGap, ctx.limit);
-      }
-
-      const record = value as Record<string, unknown>;
-
-      if (Array.isArray(ctx.replacer)) {
-        for (const k of ctx.replacer) {
-          if (typeof k === "string") {
-            const v = str(k, record, childGap, ctx);
-            if (v !== undefined) partial.push(quote(k) + (childGap ? ": " : ":") + v);
-          }
-        }
-      } else {
-        for (const k in record) {
-          if (Object.prototype.hasOwnProperty.call(record, k)) {
-            const v = str(k, record, childGap, ctx);
-            if (v !== undefined) partial.push(quote(k) + (childGap ? ": " : ":") + v);
-          }
-        }
-      }
-
-      return wrap(partial, "{", "}", mind, childGap, ctx.limit);
+      return Array.isArray(value)
+        ? serializeJSONArray(value, indent, state)
+        : serializeJSONObject(value, indent, state);
     }
 
     default:
-      // undefined, function, symbol, bigint: not JSON-representable.
+      // undefined, function, symbol: no JSON representation.
       return undefined;
   }
 }
 
 /**
  * Same signature as `JSON.stringify`, plus an optional 4th `limit` parameter:
- * the maximum fixed character width (e.g. 80) before a nested object/array
- * is broken onto multiple lines.
+ * the maximum line width (e.g. 80) before a nested object or array is broken
+ * onto multiple lines. Without a `limit`, output matches `JSON.stringify`
+ * character for character.
+ *
+ * Stricter than `JSON.stringify` in one respect: a `replacer` that is neither
+ * a function nor an array, or a non-numeric `limit`, throws rather than being
+ * silently ignored. Serialization of everything it accepts is unaffected.
+ *
+ * @throws {Error} on a malformed `replacer` or `limit`.
+ * @throws {TypeError} on a BigInt value or a circular structure, per §25.5.4.
  */
 export default function beautify(
   value: unknown,
@@ -169,13 +309,6 @@ export default function beautify(
   space?: number | string,
   limit?: number,
 ): string {
-  let indent = "";
-  if (typeof space === "number") {
-    indent = " ".repeat(Math.max(0, Math.floor(space)));
-  } else if (typeof space === "string") {
-    indent = space;
-  }
-
   if (replacer != null && typeof replacer !== "function" && !Array.isArray(replacer)) {
     throw new Error("beautify: wrong replacer parameter");
   }
@@ -184,11 +317,13 @@ export default function beautify(
     throw new Error("beautify: limit must be a number");
   }
 
-  const ctx: Context = {
-    indent,
+  const state: State = {
+    replacerFunction: typeof replacer === "function" ? replacer : undefined,
+    propertyList: Array.isArray(replacer) ? toPropertyList(replacer) : undefined,
+    gap: toGap(space),
+    stack: [],
     limit: limit || 0,
-    replacer: replacer ?? null,
   };
 
-  return str("", { "": value }, "", ctx) as string;
+  return serializeJSONProperty("", { "": value }, "", state) as string;
 }
