@@ -2,30 +2,57 @@
   "name": "json-beautify",
   "version": "1.1.1",
   "description": "JSON.stringify with fixed maximum character width.",
-  "main": "index.js",
-  "scripts": {
-    "test": "npm test"
+  "keywords": [
+    "beautifier",
+    "beautify",
+    "json",
+    "prettifier",
+    "prettify",
+    "pretty",
+    "stringify"
+  ],
+  "homepage": "https://github.com/gre/json-beautify",
+  "bugs": {
+    "url": "https://github.com/gre/json-beautify/issues"
   },
-  "bin": {
-    "json-beautify": "./bin/json-beautify"
-  },
+  "license": "ISC",
+  "author": "Gaëtan Renaudeau",
   "repository": {
     "type": "git",
     "url": "https://github.com/gre/json-beautify"
   },
-  "keywords": [
-    "json",
-    "stringify",
-    "pretty",
-    "prettify",
-    "prettifier",
-    "beautify",
-    "beautifier"
-  ],
-  "author": "Gaëtan Renaudeau",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/gre/json-beautify/issues"
+  "bin": {
+    "json-beautify": "./dist/bin.js"
   },
-  "homepage": "https://github.com/gre/json-beautify"
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "rm -rf dist && tsc -p tsconfig.build.json",
+    "pretest": "rm -rf dist && tsc -p tsconfig.json",
+    "test": "node --test dist/*.test.js",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "oxlint .",
+    "fmt": "oxfmt .",
+    "fmt:check": "oxfmt --check .",
+    "prepublishOnly": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "oxfmt": "^0.61.0",
+    "oxlint": "^1.76.0",
+    "typescript": "^7.0.2"
+  },
+  "engines": {
+    "node": ">=18"
+  }
 }
