@@ -74,11 +74,19 @@ test("non-finite numbers become null, matching JSON.stringify", () => {
 });
 
 test("rejects an invalid replacer", () => {
-  assert.throws(() => beautify({}, "nope" as never, 2), /wrong replacer/);
+  assert.throws(() => beautify({}, "nope" as never, 2), /replacer must be a function or an array/);
 });
 
-test("rejects a non-numeric limit", () => {
-  assert.throws(() => beautify({}, null, 2, "nope" as never), /limit must be a number/);
+test("rejects a maxWidth that is not a number >= 0", () => {
+  assert.throws(() => beautify({}, null, 2, "nope" as never), /maxWidth must be a number >= 0/);
+  assert.throws(() => beautify({}, { maxWidth: NaN }), /maxWidth must be a number >= 0/);
+  assert.throws(() => beautify({}, { maxWidth: -1 }), /maxWidth must be a number >= 0/);
+});
+
+test("maxWidth accepts 0 (always break) and Infinity (never break)", () => {
+  const value = { a: [1, 2], b: 3 };
+  assert.equal(beautify(value, { maxWidth: 0 }), '{\n  "a": [\n    1,\n    2\n  ],\n  "b": 3\n}');
+  assert.equal(beautify(value, { maxWidth: Infinity }), '{ "a": [ 1, 2 ], "b": 3 }');
 });
 
 test("supports a string indent", () => {
@@ -284,9 +292,11 @@ test("array values that are undefined/functions become null", () => {
   assert.deepEqual(JSON.parse(out), [1, null, null, 2]);
 });
 
-test("wrap boundary: fits inline exactly at the limit, breaks one char under", () => {
-  assert.equal(beautify([1, 2, 3], null, 2, 13), "[ 1, 2, 3 ]");
-  assert.equal(beautify([1, 2, 3], null, 2, 12), "[\n  1,\n  2,\n  3\n]");
+test("wrap boundary: fits at exactly its own width, breaks one char under", () => {
+  // "[ 1, 2, 3 ]" is 11 characters, so 11 is the exact threshold.
+  assert.equal(beautify([1, 2, 3], null, 2, 11).length, 11);
+  assert.equal(beautify([1, 2, 3], null, 2, 11), "[ 1, 2, 3 ]");
+  assert.equal(beautify([1, 2, 3], null, 2, 10), "[\n  1,\n  2,\n  3\n]");
 });
 
 test("only the branch that exceeds the limit wraps, siblings stay inline", () => {
@@ -362,4 +372,169 @@ test("matches JSON.stringify exactly across the spec's edge cases", () => {
       `mismatch for ${JSON.stringify(String(space))} / ${String(replacer)}`,
     );
   }
+});
+
+// --- Options object -------------------------------------------------------
+
+test("options form defaults to a 2-space indent and an 80-column width", () => {
+  assert.equal(beautify(sample, {}), beautify(sample, null, 2, 80));
+});
+
+test("options form accepts every positional argument by name", () => {
+  assert.equal(
+    beautify(sample, { replacer: null, space: 4, maxWidth: 60 }),
+    beautify(sample, null, 4, 60),
+  );
+  assert.equal(
+    beautify({ a: 1, b: 2 }, { replacer: ["a"] }),
+    beautify({ a: 1, b: 2 }, ["a"], 2, 80),
+  );
+});
+
+test("options form is distinguished from a replacer without ambiguity", () => {
+  // Functions and arrays are replacers; a plain object is options.
+  assert.equal(beautify({ a: 1, b: 2 }, ["a"]), '{"a":1}');
+  assert.equal(beautify({ a: 1 }, { space: 0 }), '{"a":1}');
+  // A null-prototype object is still a plain object.
+  assert.equal(beautify({ a: 1 }, Object.assign(Object.create(null), { space: 0 })), '{"a":1}');
+});
+
+test("a non-plain object is a malformed replacer, not an options object", () => {
+  // Otherwise `new Date()` would silently switch the call onto the options
+  // defaults instead of being rejected.
+  for (const notOptions of [new Date(), new Map(), new Set(), /re/, new (class {})()]) {
+    assert.throws(
+      () => beautify({ a: 1 }, notOptions as never),
+      /replacer must be a function or an array/,
+      `${Object.prototype.toString.call(notOptions)} should be rejected`,
+    );
+  }
+});
+
+test("rejects an unknown option, catching typos JSON.stringify would swallow", () => {
+  assert.throws(() => beautify({}, { maxwidth: 100 } as never), /unknown option "maxwidth"/);
+  assert.throws(() => beautify({}, { sortkeys: true } as never), /unknown option "sortkeys"/);
+});
+
+test("rejects mixing the options object with positional arguments", () => {
+  assert.throws(() => beautify({}, { space: 2 } as never, 4), /not both/);
+});
+
+test("validates option types", () => {
+  assert.throws(() => beautify({}, { sortKeys: "yes" as never }), /sortKeys must be/);
+  assert.throws(() => beautify({}, { arrayPadding: "x" }), /arrayPadding must be a string/);
+  assert.throws(
+    () => beautify({}, { objectPadding: 3 as never }),
+    /objectPadding must be a string/,
+  );
+  assert.throws(() => beautify({}, { replacer: "nope" as never }), /replacer must be/);
+});
+
+// --- sortKeys -------------------------------------------------------------
+
+test("sortKeys orders object keys, recursively", () => {
+  const value = { z: 1, a: { d: 1, b: 2 }, m: [{ y: 1, x: 2 }] };
+  const out = beautify(value, { sortKeys: true });
+  assert.deepEqual(out.match(/"[a-z]"(?=:)/g), ['"a"', '"b"', '"d"', '"m"', '"x"', '"y"', '"z"']);
+  assert.deepEqual(JSON.parse(out), value);
+});
+
+test("sortKeys sorts keys, not their serialized text", () => {
+  // Sorting the rendered `"key": value` members instead would interleave the
+  // quote and colon with key characters and produce a different order.
+  const value = { ab: 1, "a b": 2, "a!": 3, a: 4 };
+  const out = beautify(value, { sortKeys: true });
+  assert.deepEqual(Object.keys(JSON.parse(out)), ["a", "a b", "a!", "ab"]);
+});
+
+test("sortKeys accepts a comparator", () => {
+  const value = { bb: 1, a: 2, cccc: 3 };
+  const byLength = (a: string, b: string) => a.length - b.length;
+  assert.deepEqual(Object.keys(JSON.parse(beautify(value, { sortKeys: byLength }))), [
+    "a",
+    "bb",
+    "cccc",
+  ]);
+});
+
+test("a replacer array keeps its own order, overriding sortKeys", () => {
+  // The array is itself an explicit ordering; sorting it would discard intent.
+  const out = beautify({ a: 1, b: 2, c: 3 }, { replacer: ["c", "a"], sortKeys: true });
+  assert.deepEqual(Object.keys(JSON.parse(out)), ["c", "a"]);
+});
+
+test("sortKeys is off by default, preserving insertion order", () => {
+  assert.deepEqual(Object.keys(JSON.parse(beautify({ z: 1, a: 2 }, {}))), ["z", "a"]);
+});
+
+// --- Padding --------------------------------------------------------------
+
+test("padding controls the space inside single-line arrays and objects", () => {
+  const value = { a: [1, 2] };
+  assert.equal(beautify(value, {}), '{ "a": [ 1, 2 ] }');
+  assert.equal(beautify(value, { arrayPadding: "" }), '{ "a": [1, 2] }');
+  assert.equal(beautify(value, { objectPadding: "" }), '{"a": [ 1, 2 ]}');
+  assert.equal(beautify(value, { arrayPadding: "", objectPadding: "" }), '{"a": [1, 2]}');
+});
+
+test("padding is counted against maxWidth", () => {
+  assert.equal(beautify([1, 2, 3], { maxWidth: 10, arrayPadding: "" }), "[1, 2, 3]");
+  assert.equal(beautify([1, 2, 3], { maxWidth: 10 }), "[\n  1,\n  2,\n  3\n]");
+});
+
+test("padding does not apply to compact output, keeping JSON.stringify parity", () => {
+  const value = { a: [1, 2] };
+  assert.equal(beautify(value, { space: 0, arrayPadding: "" }), JSON.stringify(value));
+  assert.equal(beautify(value, { space: 0 }), JSON.stringify(value));
+});
+
+// --- maxWidth is a real bound ---------------------------------------------
+
+test("no line exceeds maxWidth when the content can be broken at all", () => {
+  // Budget so no atom can ever be the cause: depth <= 5 gives indent <= 10,
+  // the longest key prefix is 9 (`"abcde": `), the longest atom 8, comma 1.
+  // 10 + 9 + 8 + 1 = 28, comfortably under the 40 used below.
+  let seed = 0x2f6e2b1;
+  const rnd = (n: number) => {
+    seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+    return seed % n;
+  };
+  const keys = ["id", "ab", "abc", "abcd", "abcde"];
+  const atoms = [1, 42, "sixchr", true, null, 1234];
+  const gen = (d: number): unknown => {
+    if (d <= 0 || rnd(3) === 0) return atoms[rnd(atoms.length)];
+    if (rnd(2)) return Array.from({ length: rnd(4) + 1 }, () => gen(d - 1));
+    const o: Record<string, unknown> = {};
+    for (let i = rnd(4) + 1; i--;) o[keys[rnd(keys.length)] as string] = gen(d - 1);
+    return o;
+  };
+
+  const width = 40;
+  for (let i = 0; i < 2000; i += 1) {
+    const value = gen(5);
+    const out = beautify(value, { maxWidth: width });
+    for (const line of out.split("\n")) {
+      assert.ok(line.length <= width, `line of ${line.length} > ${width}:\n${out}`);
+    }
+    assert.deepEqual(JSON.parse(out), JSON.parse(JSON.stringify(value)));
+  }
+});
+
+test("counts the key prefix, so a long key cannot push a value past maxWidth", () => {
+  const value = { aLongDescriptiveKeyName: [100, 200, 300] };
+  const out = beautify(value, { maxWidth: 40 });
+  for (const line of out.split("\n")) assert.ok(line.length <= 40, line);
+  assert.ok(out.includes("\n    100,"));
+});
+
+test("counts the trailing comma", () => {
+  const value = { a: [1, 2], b: 0 };
+  const out = beautify(value, { maxWidth: 15, space: 2 });
+  for (const line of out.split("\n")) assert.ok(line.length <= 15, `${line.length}: ${line}`);
+});
+
+test("a member that already broke is never folded back onto one line", () => {
+  const out = beautify({ outer: { inner: [1, 2, 3, 4, 5, 6, 7, 8] } }, { maxWidth: 20 });
+  for (const line of out.split("\n")) assert.ok(!line.includes("[\n"), line);
+  assert.deepEqual(JSON.parse(out), { outer: { inner: [1, 2, 3, 4, 5, 6, 7, 8] } });
 });
