@@ -1,7 +1,7 @@
 {
   "name": "json-beautify",
   "version": "1.1.1",
-  "description": "JSON.stringify with a real maximum line width.",
+  "description": "JSON.stringify for humans",
   "keywords": [
     "beautifier",
     "beautify",
