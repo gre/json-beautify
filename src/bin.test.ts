@@ -52,3 +52,79 @@ test("exits with no changes when called with no files", () => {
   const result = spawnSync(process.execPath, [binPath], { encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
 });
+
+test("--sort-keys sorts object keys", () => {
+  withTempDir((dir) => {
+    const file = join(dir, "s.json");
+    writeFileSync(file, JSON.stringify({ z: 1, a: 2, m: 3 }));
+
+    const result = spawnSync(process.execPath, [binPath, "--sort-keys", file], {
+      encoding: "utf8",
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const output = readFileSync(file, "utf8");
+    assert.deepEqual(Object.keys(JSON.parse(output)), ["a", "m", "z"]);
+    assert.equal(output, beautify({ z: 1, a: 2, m: 3 }, { sortKeys: true }));
+  });
+});
+
+test("--width and --indent are honoured, in both syntaxes", () => {
+  withTempDir((dir) => {
+    const value = { a: [1, 2, 3], b: { c: 4 } };
+    const file = join(dir, "w.json");
+    writeFileSync(file, JSON.stringify(value));
+
+    const result = spawnSync(process.execPath, [binPath, "--width=20", "-i", "4", file], {
+      encoding: "utf8",
+    });
+
+    assert.equal(result.status, 0, result.stderr);
+    const output = readFileSync(file, "utf8");
+    assert.equal(output, beautify(value, { maxWidth: 20, space: 4 }));
+    for (const line of output.split("\n")) assert.ok(line.length <= 20, line);
+  });
+});
+
+test("--compact drops the padding inside single-line collections", () => {
+  withTempDir((dir) => {
+    const value = { a: [1, 2] };
+    const file = join(dir, "c.json");
+    writeFileSync(file, JSON.stringify(value));
+
+    const result = spawnSync(process.execPath, [binPath, "-c", file], { encoding: "utf8" });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(readFileSync(file, "utf8"), '{"a": [1, 2]}');
+  });
+});
+
+test("--help prints usage and exits 0", () => {
+  const result = spawnSync(process.execPath, [binPath, "--help"], { encoding: "utf8" });
+  assert.equal(result.status, 0);
+  assert.match(result.stdout, /Usage: json-beautify/);
+});
+
+test("an unknown option fails with usage on stderr", () => {
+  const result = spawnSync(process.execPath, [binPath, "--nope"], { encoding: "utf8" });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /unknown option --nope/);
+});
+
+test("a flag missing its value fails", () => {
+  const result = spawnSync(process.execPath, [binPath, "--width"], { encoding: "utf8" });
+  assert.equal(result.status, 1);
+  assert.match(result.stderr, /--width needs a value/);
+});
+
+test("`--` ends option parsing", () => {
+  withTempDir((dir) => {
+    const file = join(dir, "-weird.json");
+    writeFileSync(file, JSON.stringify({ a: 1 }));
+
+    const result = spawnSync(process.execPath, [binPath, "--", file], { encoding: "utf8" });
+
+    assert.equal(result.status, 0, result.stderr);
+    assert.deepEqual(JSON.parse(readFileSync(file, "utf8")), { a: 1 });
+  });
+});

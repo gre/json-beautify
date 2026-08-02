@@ -156,79 +156,155 @@ function toPropertyList(replacer: readonly unknown[]): string[] {
   return list;
 }
 
+/** Sorts object keys: `true` for code-unit order, or a custom comparator. */
+export type KeyOrder = boolean | ((a: string, b: string) => number);
+
+/**
+ * Everything `beautify` can be told to do, as a single object. This is the
+ * preferred form; the positional `JSON.stringify` signature remains supported
+ * for drop-in use.
+ */
+export interface Options {
+  /** §25.5.4 `replacer`: a filter function, or an array of keys to keep. */
+  replacer?: Replacer;
+  /** §25.5.4 `space`: indent width, or the literal indent string. Default 2. */
+  space?: number | string;
+  /** Maximum line width. Default 80. Use 0 to always break. */
+  maxWidth?: number;
+  /** Sort object keys instead of using their natural order. Default false. */
+  sortKeys?: KeyOrder;
+  /** Padding inside a single-line array. Default `" "` → `[ 1, 2 ]`. */
+  arrayPadding?: string;
+  /** Padding inside a single-line object. Default `" "` → `{ "a": 1 }`. */
+  objectPadding?: string;
+}
+
+const OPTION_KEYS: ReadonlyArray<keyof Options> = [
+  "replacer",
+  "space",
+  "maxWidth",
+  "sortKeys",
+  "arrayPadding",
+  "objectPadding",
+];
+
 /** §25.5.4.1 JSON Serialization Record, minus [[Indent]] (threaded instead). */
 interface State {
   replacerFunction: ((this: unknown, key: string, value: unknown) => unknown) | undefined;
   propertyList: string[] | undefined;
   gap: string;
   stack: object[];
-  limit: number;
+  maxWidth: number;
+  sortKeys: KeyOrder;
+  arrayPadding: string;
+  objectPadding: string;
 }
 
 /**
- * Join already-serialized members. This is where json-beautify departs from
- * the spec: rather than always breaking when a gap is set, a run stays inline
- * as long as it fits within `limit` characters.
+ * Join already-serialized members. This is where json-beautify departs from the
+ * spec: rather than always breaking once a gap is set, a run stays on one line
+ * while it fits.
+ *
+ * `reserved` is the width this line has already committed to everything that is
+ * not this value — the indent, the `"key": ` prefix above it, and the comma that
+ * will follow it. Counting it is what makes `maxWidth` a real bound rather than
+ * an estimate.
  */
 function wrap(
   partial: string[],
-  open: string,
-  close: string,
-  stepBack: string,
+  isArray: boolean,
   indent: string,
+  reserved: number,
   state: State,
 ): string {
+  const open = isArray ? "[" : "{";
+  const close = isArray ? "]" : "}";
+
   if (partial.length === 0) return open + close;
   if (!state.gap) return open + partial.join(",") + close;
 
-  const inline = partial.join(", ");
-  if (indent.length + inline.length + 4 <= state.limit) {
-    return open + " " + inline + " " + close;
-  }
-  return open + "\n" + indent + partial.join(",\n" + indent) + "\n" + stepBack + close;
+  const padding = isArray ? state.arrayPadding : state.objectPadding;
+  const inline = open + padding + partial.join(", ") + padding + close;
+  // A member that already broke cannot be folded back onto one line.
+  if (!inline.includes("\n") && reserved + inline.length <= state.maxWidth) return inline;
+
+  const childIndent = indent + state.gap;
+  return open + "\n" + childIndent + partial.join(",\n" + childIndent) + "\n" + indent + close;
+}
+
+/** §25.5.4.5 step 6: the keys to serialize, in the order to serialize them. */
+function orderedKeys(value: object, state: State): string[] {
+  // A replacer array is itself an explicit ordering, so `sortKeys` leaves it be.
+  if (state.propertyList !== undefined) return state.propertyList;
+
+  const keys = Object.keys(value);
+  if (!state.sortKeys) return keys;
+  return keys.sort(typeof state.sortKeys === "function" ? state.sortKeys : undefined);
 }
 
 /** §25.5.4.6 SerializeJSONArray */
-function serializeJSONArray(value: unknown[], indent: string, state: State): string {
+function serializeJSONArray(
+  value: unknown[],
+  indent: string,
+  reserved: number,
+  state: State,
+): string {
   if (state.stack.includes(value)) {
     throw new TypeError("Converting circular structure to JSON");
   }
   state.stack.push(value);
 
-  const stepBack = indent;
   const childIndent = indent + state.gap;
   const partial: string[] = [];
 
   for (let i = 0; i < value.length; i += 1) {
-    partial.push(serializeJSONProperty(String(i), value, childIndent, state) ?? "null");
+    const comma = i < value.length - 1 ? 1 : 0;
+    const member = serializeJSONProperty(
+      String(i),
+      value,
+      childIndent,
+      childIndent.length + comma,
+      state,
+    );
+    partial.push(member ?? "null");
   }
 
   state.stack.pop();
-  return wrap(partial, "[", "]", stepBack, childIndent, state);
+  return wrap(partial, true, indent, reserved, state);
 }
 
 /** §25.5.4.5 SerializeJSONObject */
-function serializeJSONObject(value: object, indent: string, state: State): string {
+function serializeJSONObject(
+  value: object,
+  indent: string,
+  reserved: number,
+  state: State,
+): string {
   if (state.stack.includes(value)) {
     throw new TypeError("Converting circular structure to JSON");
   }
   state.stack.push(value);
 
-  const stepBack = indent;
   const childIndent = indent + state.gap;
+  const separator = state.gap ? ": " : ":";
+  const keys = orderedKeys(value, state);
   const partial: string[] = [];
-  // Step 6.a: EnumerableOwnProperties(value, key).
-  const keys = state.propertyList ?? Object.keys(value);
 
-  for (const key of keys) {
-    const member = serializeJSONProperty(key, value, childIndent, state);
-    if (member !== undefined) {
-      partial.push(quoteJSONString(key) + (state.gap ? ": " : ":") + member);
-    }
+  for (const [i, key] of keys.entries()) {
+    const prefix = quoteJSONString(key) + separator;
+    const comma = i < keys.length - 1 ? 1 : 0;
+    const member = serializeJSONProperty(
+      key,
+      value,
+      childIndent,
+      childIndent.length + prefix.length + comma,
+      state,
+    );
+    if (member !== undefined) partial.push(prefix + member);
   }
 
   state.stack.pop();
-  return wrap(partial, "{", "}", stepBack, childIndent, state);
+  return wrap(partial, false, indent, reserved, state);
 }
 
 /** §25.5.4.2 SerializeJSONProperty */
@@ -236,6 +312,7 @@ function serializeJSONProperty(
   key: string,
   holder: object,
   indent: string,
+  reserved: number,
   state: State,
 ): string | undefined {
   let value: unknown = (holder as Record<string, unknown>)[key];
@@ -280,8 +357,8 @@ function serializeJSONProperty(
     case "object": {
       if (value === null) return "null";
       return Array.isArray(value)
-        ? serializeJSONArray(value, indent, state)
-        : serializeJSONObject(value, indent, state);
+        ? serializeJSONArray(value, indent, reserved, state)
+        : serializeJSONObject(value, indent, reserved, state);
     }
 
     default:
@@ -291,39 +368,93 @@ function serializeJSONProperty(
 }
 
 /**
- * Same signature as `JSON.stringify`, plus an optional 4th `limit` parameter:
- * the maximum line width (e.g. 80) before a nested object or array is broken
- * onto multiple lines. Without a `limit`, output matches `JSON.stringify`
- * character for character.
- *
- * Stricter than `JSON.stringify` in one respect: a `replacer` that is neither
- * a function nor an array, or a non-numeric `limit`, throws rather than being
- * silently ignored. Serialization of everything it accepts is unaffected.
- *
- * @throws {Error} on a malformed `replacer` or `limit`.
- * @throws {TypeError} on a BigInt value or a circular structure, per §25.5.4.
+ * An options object is any plain object; a replacer is only ever a function,
+ * an array, or nullish. That keeps the two forms of the call unambiguous.
  */
-export default function beautify(
-  value: unknown,
-  replacer?: Replacer,
-  space?: number | string,
-  limit?: number,
-): string {
+function isOptions(value: Replacer | Options | undefined): value is Options {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** `Options` with every key explicitly present, possibly as `undefined`. */
+type GivenOptions = { [K in keyof Options]: Options[K] | undefined };
+
+function toState(options: GivenOptions): State {
+  const { replacer, space, maxWidth, sortKeys, arrayPadding, objectPadding } = options;
+
   if (replacer != null && typeof replacer !== "function" && !Array.isArray(replacer)) {
-    throw new Error("beautify: wrong replacer parameter");
+    throw new Error("beautify: replacer must be a function or an array");
+  }
+  if (maxWidth !== undefined && (typeof maxWidth !== "number" || Number.isNaN(maxWidth))) {
+    throw new Error("beautify: maxWidth must be a number");
+  }
+  if (sortKeys !== undefined && typeof sortKeys !== "boolean" && typeof sortKeys !== "function") {
+    throw new Error("beautify: sortKeys must be a boolean or a comparator function");
+  }
+  for (const [name, padding] of [
+    ["arrayPadding", arrayPadding],
+    ["objectPadding", objectPadding],
+  ] as const) {
+    if (padding !== undefined && (typeof padding !== "string" || padding.trim() !== "")) {
+      throw new Error(`beautify: ${name} must be a string of whitespace`);
+    }
   }
 
-  if (limit !== undefined && typeof limit !== "number") {
-    throw new Error("beautify: limit must be a number");
-  }
-
-  const state: State = {
+  return {
     replacerFunction: typeof replacer === "function" ? replacer : undefined,
     propertyList: Array.isArray(replacer) ? toPropertyList(replacer) : undefined,
     gap: toGap(space),
     stack: [],
-    limit: limit || 0,
+    maxWidth: maxWidth ?? 0,
+    sortKeys: sortKeys ?? false,
+    arrayPadding: arrayPadding ?? " ",
+    objectPadding: objectPadding ?? " ",
   };
+}
 
-  return serializeJSONProperty("", { "": value }, "", state) as string;
+/**
+ * Serialize `value` as JSON, keeping objects and arrays on one line while they
+ * fit within `maxWidth` characters.
+ *
+ * Called with an options object, `space` defaults to 2 and `maxWidth` to 80 —
+ * the point of the call is to get readable output. Called with the positional
+ * `JSON.stringify` arguments, both default to off, so the result is
+ * character-identical to `JSON.stringify` for every input it accepts.
+ *
+ * It is stricter than `JSON.stringify` about arguments: a malformed replacer,
+ * width or option name throws rather than being silently ignored.
+ *
+ * @throws {Error} on a malformed argument or an unknown option.
+ * @throws {TypeError} on a BigInt value or a circular structure, per §25.5.4.
+ */
+export default function beautify(value: unknown, options?: Options): string;
+export default function beautify(
+  value: unknown,
+  replacer?: Replacer,
+  space?: number | string,
+  maxWidth?: number,
+): string;
+export default function beautify(
+  value: unknown,
+  replacerOrOptions?: Replacer | Options,
+  space?: number | string,
+  maxWidth?: number,
+): string {
+  let options: GivenOptions;
+
+  if (isOptions(replacerOrOptions)) {
+    if (space !== undefined || maxWidth !== undefined) {
+      throw new Error("beautify: pass an options object or positional arguments, not both");
+    }
+    for (const key of Object.keys(replacerOrOptions)) {
+      if (!OPTION_KEYS.includes(key as keyof Options)) {
+        throw new Error(`beautify: unknown option ${JSON.stringify(key)}`);
+      }
+    }
+    // The options form exists to produce readable output, so it defaults to it.
+    options = { space: 2, maxWidth: 80, ...replacerOrOptions };
+  } else {
+    options = { replacer: replacerOrOptions ?? null, space, maxWidth };
+  }
+
+  return serializeJSONProperty("", { "": value }, "", 0, toState(options)) as string;
 }
