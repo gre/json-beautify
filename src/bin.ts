@@ -54,8 +54,12 @@ for (let i = 0; i < argv.length; i += 1) {
 
     case "-w":
     case "--width": {
-      const width = Number(value());
-      if (!Number.isFinite(width)) fail(`${name} needs a number`);
+      const given = value();
+      const width = Number(given);
+      // `Number("")` is 0, which would silently mean "break everything".
+      if (given.trim() === "" || Number.isNaN(width) || width < 0) {
+        fail(`${name} needs a number >= 0`);
+      }
       options.maxWidth = width;
       break;
     }

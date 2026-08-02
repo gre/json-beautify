@@ -80,7 +80,7 @@ console.log(beautify(obj, { maxWidth: 100 }));
 | --- | --- | --- | --- |
 | `replacer` | function \| array \| null | `null` | §25.5.4 `replacer`: a filter function, or an array of keys to keep. |
 | `space` | number \| string | `2` | §25.5.4 `space`: indent width, or the literal indent string. |
-| `maxWidth` | number | `80` | Maximum line width. `0` always breaks. |
+| `maxWidth` | number | `80` | Maximum line width. `0` always breaks, `Infinity` never does. |
 | `sortKeys` | boolean \| comparator | `false` | Sort object keys instead of using their natural order. |
 | `arrayPadding` | string | `" "` | Padding inside a single-line array. `""` gives `[1, 2]`. |
 | `objectPadding` | string | `" "` | Padding inside a single-line object. `""` gives `{"a": 1}`. |

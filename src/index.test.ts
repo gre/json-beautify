@@ -77,9 +77,16 @@ test("rejects an invalid replacer", () => {
   assert.throws(() => beautify({}, "nope" as never, 2), /replacer must be a function or an array/);
 });
 
-test("rejects a non-numeric maxWidth", () => {
-  assert.throws(() => beautify({}, null, 2, "nope" as never), /maxWidth must be a number/);
-  assert.throws(() => beautify({}, { maxWidth: NaN }), /maxWidth must be a number/);
+test("rejects a maxWidth that is not a number >= 0", () => {
+  assert.throws(() => beautify({}, null, 2, "nope" as never), /maxWidth must be a number >= 0/);
+  assert.throws(() => beautify({}, { maxWidth: NaN }), /maxWidth must be a number >= 0/);
+  assert.throws(() => beautify({}, { maxWidth: -1 }), /maxWidth must be a number >= 0/);
+});
+
+test("maxWidth accepts 0 (always break) and Infinity (never break)", () => {
+  const value = { a: [1, 2], b: 3 };
+  assert.equal(beautify(value, { maxWidth: 0 }), '{\n  "a": [\n    1,\n    2\n  ],\n  "b": 3\n}');
+  assert.equal(beautify(value, { maxWidth: Infinity }), '{ "a": [ 1, 2 ], "b": 3 }');
 });
 
 test("supports a string indent", () => {
@@ -385,9 +392,23 @@ test("options form accepts every positional argument by name", () => {
 });
 
 test("options form is distinguished from a replacer without ambiguity", () => {
-  // Functions and arrays are replacers; any other object is options.
+  // Functions and arrays are replacers; a plain object is options.
   assert.equal(beautify({ a: 1, b: 2 }, ["a"]), '{"a":1}');
   assert.equal(beautify({ a: 1 }, { space: 0 }), '{"a":1}');
+  // A null-prototype object is still a plain object.
+  assert.equal(beautify({ a: 1 }, Object.assign(Object.create(null), { space: 0 })), '{"a":1}');
+});
+
+test("a non-plain object is a malformed replacer, not an options object", () => {
+  // Otherwise `new Date()` would silently switch the call onto the options
+  // defaults instead of being rejected.
+  for (const notOptions of [new Date(), new Map(), new Set(), /re/, new (class {})()]) {
+    assert.throws(
+      () => beautify({ a: 1 }, notOptions as never),
+      /replacer must be a function or an array/,
+      `${Object.prototype.toString.call(notOptions)} should be rejected`,
+    );
+  }
 });
 
 test("rejects an unknown option, catching typos JSON.stringify would swallow", () => {

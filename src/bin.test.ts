@@ -128,3 +128,11 @@ test("`--` ends option parsing", () => {
     assert.deepEqual(JSON.parse(readFileSync(file, "utf8")), { a: 1 });
   });
 });
+
+test("--width rejects an empty or negative value", () => {
+  for (const args of [["--width="], ["--width", "-5"], ["--width", "nope"]]) {
+    const result = spawnSync(process.execPath, [binPath, ...args], { encoding: "utf8" });
+    assert.equal(result.status, 1, `expected failure for ${args.join(" ")}`);
+    assert.match(result.stderr, /--width needs a number >= 0/);
+  }
+});

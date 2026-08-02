@@ -169,7 +169,7 @@ export interface Options {
   replacer?: Replacer;
   /** §25.5.4 `space`: indent width, or the literal indent string. Default 2. */
   space?: number | string;
-  /** Maximum line width. Default 80. Use 0 to always break. */
+  /** Maximum line width. Default 80. `0` always breaks, `Infinity` never does. */
   maxWidth?: number;
   /** Sort object keys instead of using their natural order. Default false. */
   sortKeys?: KeyOrder;
@@ -368,11 +368,17 @@ function serializeJSONProperty(
 }
 
 /**
- * An options object is any plain object; a replacer is only ever a function,
- * an array, or nullish. That keeps the two forms of the call unambiguous.
+ * An options object is a *plain* object; a replacer is only ever a function, an
+ * array, or nullish. That keeps the two forms of the call unambiguous.
+ *
+ * The plainness matters: `new Date()` is a malformed replacer, not an options
+ * object, and has to reach the replacer check to be rejected rather than
+ * silently switching the call onto the options defaults.
  */
 function isOptions(value: Replacer | Options | undefined): value is Options {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const prototype: unknown = Object.getPrototypeOf(value);
+  return prototype === Object.prototype || prototype === null;
 }
 
 /** `Options` with every key explicitly present, possibly as `undefined`. */
@@ -384,8 +390,10 @@ function toState(options: GivenOptions): State {
   if (replacer != null && typeof replacer !== "function" && !Array.isArray(replacer)) {
     throw new Error("beautify: replacer must be a function or an array");
   }
-  if (maxWidth !== undefined && (typeof maxWidth !== "number" || Number.isNaN(maxWidth))) {
-    throw new Error("beautify: maxWidth must be a number");
+  // `Infinity` is allowed and means "never break"; negative widths would only
+  // be an obscure spelling of 0, which already means "always break".
+  if (maxWidth !== undefined && (typeof maxWidth !== "number" || !(maxWidth >= 0))) {
+    throw new Error("beautify: maxWidth must be a number >= 0");
   }
   if (sortKeys !== undefined && typeof sortKeys !== "boolean" && typeof sortKeys !== "function") {
     throw new Error("beautify: sortKeys must be a boolean or a comparator function");
